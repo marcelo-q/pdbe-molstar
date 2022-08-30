@@ -43,6 +43,16 @@ import { AnimateStructureSpin } from 'Molstar/mol-plugin-state/animation/built-i
 import { AnimateCameraRock } from 'Molstar/mol-plugin-state/animation/built-in/camera-rock';
 import { AnimateAssemblyUnwind } from 'Molstar/mol-plugin-state/animation/built-in/assembly-unwind';
 
+/**
+ * Imports for added transformSuperpose and superimposePair helper methods
+ * under visual
+ */
+import { alignAndSuperposeWithSIFTSMapping } from 'Molstar/mol-model/structure/structure/util/superposition-sifts-mapping';
+import { StateObjectRef } from 'Molstar/mol-state';
+import { Mat4 } from 'Molstar/mol-math/linear-algebra';
+import { SymmetryOperator } from 'Molstar/mol-math/geometry';
+import { StateTransforms } from 'Molstar/mol-plugin-state/transforms';
+
 require('Molstar/mol-plugin-ui/skin/dark.scss');
 
 class PDBeMolstarPlugin {
@@ -696,6 +706,68 @@ class PDBeMolstarPlugin {
                 if(rParam.highlightColor) this.isHighlightColorUpdated = false;
             }
 
+        },
+        transformSuperpose: async(s: StateObjectRef<PluginStateObject.Molecule.Structure>, matrix: Mat4, coordinateSystem?: SymmetryOperator) => {
+            const r = StateObjectRef.resolveAndCheck(this.plugin.state.data, s);
+            if (!r) return;
+            const o = this.plugin.state.data.selectQ(q => q.byRef(r.transform.ref).subtree().withTransformer(StateTransforms.Model.TransformStructureConformation))[0];
+    
+            const transform = coordinateSystem && !Mat4.isIdentity(coordinateSystem.matrix)
+                ? Mat4.mul(Mat4(), coordinateSystem.matrix, matrix)
+                : matrix;
+    
+            const params = {
+                transform: {
+                    name: 'matrix' as const,
+                    params: { data: transform, transpose: false }
+                }
+            };
+            const b = o
+                ? this.plugin.state.data.build().to(o).update(params)
+                : this.plugin.state.data.build().to(s)
+                    .insert(StateTransforms.Model.TransformStructureConformation, params, { tags: 'SuperpositionTransform' });
+            await this.plugin.runTask(this.plugin.state.data.updateTree(b));
+        },
+        superimposePair: async() => {
+            const input = this.plugin.managers.structure.hierarchy.behaviors.selection.value.structures;
+            console.log("input");
+            console.log(input);
+            // const traceOnly = this.state.options.traceOnly;
+
+            const structures = input.map(s => s.cell.obj?.data!);
+            // const { entries, failedPairs, zeroOverlapPairs } = alignAndSuperposeWithSIFTSMapping(structures, { traceOnly });
+            const { entries, failedPairs, zeroOverlapPairs } = alignAndSuperposeWithSIFTSMapping(structures, {});
+            console.log('entries');
+            console.log(entries);
+
+            const coordinateSystem = input[0]?.transform?.cell.obj?.data.coordinateSystem;
+
+            let rmsd = 0;
+
+            for (const xform of entries) {
+                await this.visual.transformSuperpose(input[xform.other].cell, xform.transform.bTransform, coordinateSystem);
+                rmsd += xform.transform.rmsd;
+            }
+
+            rmsd /= Math.max(entries.length - 1, 1);
+
+            const formatPairs = (pairs: [number, number][]) => {
+                return `[${pairs.map(([i, j]) => `(${structures[i].models[0].entryId}, ${structures[j].models[0].entryId})`).join(', ')}]`;
+            };
+
+            if (zeroOverlapPairs.length) {
+                this.plugin.log.warn(`Superposition: No UNIPROT mapping overlap between structures ${formatPairs(zeroOverlapPairs)}.`);
+            }
+
+            if (failedPairs.length) {
+                this.plugin.log.error(`Superposition: Failed to superpose structures ${formatPairs(failedPairs)}.`);
+            }
+
+            if (entries.length) {
+                this.plugin.log.info(`Superposed ${entries.length + 1} structures with avg. RMSD ${rmsd.toFixed(2)} Å.`);
+                await new Promise(res => requestAnimationFrame(res));
+                PluginCommands.Camera.Reset(this.plugin);
+            }
         }
     }
 
