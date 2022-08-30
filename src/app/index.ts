@@ -707,6 +707,36 @@ class PDBeMolstarPlugin {
             }
 
         },
+        updateWaitLoad: async (options: InitParams, fullLoad?: boolean) => {
+            if(!options) return;
+
+            // for(let param in this.initParams){
+            //     if(options[param]) this.initParams[param] = options[param];
+            // }
+
+            this.initParams = {...DefaultParams };
+            for(let param in DefaultParams){
+                if(typeof options[param] !== 'undefined') this.initParams[param] = options[param];
+            }
+
+            if(!this.initParams.moleculeId && !this.initParams.customData) return false;
+            if(this.initParams.customData && this.initParams.customData.url && !this.initParams.customData.format) return false;
+            (this.plugin.customState as any).initParams = this.initParams;
+
+            // Set background colour
+            if(this.initParams.bgColor || this.initParams.lighting){
+                const settings: any = {};
+                if(this.initParams.bgColor) settings.color = this.initParams.bgColor;
+                if(this.initParams.lighting) settings.lighting = this.initParams.lighting;
+                this.canvas.applySettings(settings);
+            }
+
+            // Load Molecule CIF or coordQuery and Parse
+            let dataSource = this.getMoleculeSrcUrl();
+            if(dataSource){
+                await this.load({ url: dataSource.url, format: dataSource.format as BuiltInTrajectoryFormat, assemblyId: this.initParams.assemblyId, isBinary: dataSource.isBinary}, fullLoad);
+            }
+        },
         transformSuperpose: async(s: StateObjectRef<PluginStateObject.Molecule.Structure>, matrix: Mat4, coordinateSystem?: SymmetryOperator) => {
             const r = StateObjectRef.resolveAndCheck(this.plugin.state.data, s);
             if (!r) return;
