@@ -47,13 +47,32 @@ import { AnimateAssemblyUnwind } from 'Molstar/mol-plugin-state/animation/built-
  * Imports for added transformSuperpose and superimposePair helper methods
  * under visual
  */
+
 import { alignAndSuperposeWithSIFTSMapping } from 'Molstar/mol-model/structure/structure/util/superposition-sifts-mapping';
-import { StateObjectRef } from 'Molstar/mol-state';
+// import { stripTags } from 'Molstar/mol-util/string';
+import { QueryContext, Structure, StructureElement, StructureSelection, StructureProperties } from 'Molstar/mol-model/structure';
+import { StructureSelectionQueries } from 'Molstar/mol-plugin-state/helpers/structure-selection-query';
+import { elementLabel, structureElementStatsLabel } from 'Molstar/mol-theme/label';
+import { StructureSelectionHistoryEntry } from 'Molstar/mol-plugin-state/manager/structure/selection';
+// import { alignAndSuperpose, superpose } from 'Molstar/mol-model/structure/structure/util/superposition';
+import { superpose } from 'Molstar/mol-model/structure/structure/util/superposition';
+
+import { StateObjectCell, StateObjectRef } from 'Molstar/mol-state';
 import { Mat4 } from 'Molstar/mol-math/linear-algebra';
 import { SymmetryOperator } from 'Molstar/mol-math/geometry';
 import { StateTransforms } from 'Molstar/mol-plugin-state/transforms';
 
 require('Molstar/mol-plugin-ui/skin/dark.scss');
+
+
+interface LociEntry {
+    loci: StructureElement.Loci,
+    label: string,
+    cell: StateObjectCell<PluginStateObject.Molecule.Structure>
+};
+interface AtomsLociEntry extends LociEntry {
+    atoms: StructureSelectionHistoryEntry[]
+};
 
 class PDBeMolstarPlugin {
 
@@ -758,17 +777,92 @@ class PDBeMolstarPlugin {
                     .insert(StateTransforms.Model.TransformStructureConformation, params, { tags: 'SuperpositionTransform' });
             await this.plugin.runTask(this.plugin.state.data.updateTree(b));
         },
+        getchainEntries: () => {
+            const location = StructureElement.Location.create();
+            const entries: LociEntry[] = [];
+
+            console.log("this.plugin.managers.structure.hierarchy.behaviors.selection");
+            console.log(this.plugin.managers.structure.hierarchy.behaviors.selection);
+            console.log("this.plugin.managers.structure.selection");
+            console.log(this.plugin.managers.structure.selection);
+            this.plugin.managers.structure.selection.entries.forEach(({ selection }, ref) => {
+            // this.plugin.managers.structure.hierarchy.behaviors.selection.entries.forEach(({ selection }, ref) => {
+                const cell = StateObjectRef.resolveAndCheck(this.plugin.state.data, ref);
+                if (!cell || StructureElement.Loci.isEmpty(selection)) return;
+    
+                // only single polymer chain selections
+                const l = StructureElement.Loci.getFirstLocation(selection, location)!;
+                if (selection.elements.length > 1 || StructureProperties.entity.type(l) !== 'polymer') return;
+    
+                const stats = StructureElement.Stats.ofLoci(selection);
+                const counts = structureElementStatsLabel(stats, { countsOnly: true });
+                const chain = elementLabel(l, { reverse: true, granularity: 'chain' }).split('|');
+                const label = `${counts} | ${chain[0]} | ${chain[chain.length - 1]}`;
+                entries.push({ loci: selection, label, cell });
+            });
+            return entries;
+        },
+        getAtomEntries(molstar_instance: any) {
+            const structureEntries = new Map<Structure, StructureSelectionHistoryEntry[]>();
+            const history = molstar_instance.plugin.managers.structure.selection.additionsHistory;
+
+            for (let i = 0, il = history.length; i < il; ++i) {
+                const e = history[i];
+                if (StructureElement.Loci.size(e.loci) !== 1) continue;
+
+                const k = e.loci.structure;
+                if (structureEntries.has(k)) structureEntries.get(k)!.push(e);
+                else structureEntries.set(k, [e]);
+            }
+
+            const entries: AtomsLociEntry[] = [];
+            structureEntries.forEach((atoms, structure) => {
+                const cell = molstar_instance.plugin.helpers.substructureParent.get(structure)!;
+
+                const elements: StructureElement.Loci['elements'][0][] = [];
+                for (let i = 0, il = atoms.length; i < il; ++i) {
+                    // note, we don't do loci union here to keep order of selected atoms
+                    // for atom pairing during superposition
+                    elements.push(atoms[i].loci.elements[0]);
+                }
+
+                const loci = StructureElement.Loci(atoms[0].loci.structure, elements);
+                const label = loci.structure.label.split(' | ')[0];
+                entries.push({ loci, label, cell, atoms });
+            });
+            return entries;
+        },
+        superimposePairNoSifts: async() =>{
+            const xs: Array<any> = this.plugin.managers.structure.hierarchy.current.structures;
+            
+            const coordinateSystem = xs[0]?.transform?.cell.obj?.data.coordinateSystem;
+            const { query } = StructureSelectionQueries.polymer;
+            const selections = xs.map((s:any) => StructureSelection.toLociWithCurrentUnits(query(new QueryContext(s.cell.obj!.data))));
+
+            const transforms: Array<any> = superpose(selections);
+
+            let rmsd = 0;
+            for (let i = 1; i < selections.length; i++) {
+                await this.visual.transformSuperpose(xs[i].cell, transforms[i - 1].bTransform, coordinateSystem);
+                rmsd += transforms[i - 1].rmsd;
+            }
+            rmsd /= Math.max(xs.length - 1, 1);
+
+            if (xs.length) {
+                this.plugin.log.info(`Superposed ${xs.length + 1} structures with avg. RMSD ${rmsd.toFixed(2)} Å.`);
+                await new Promise(res => requestAnimationFrame(res));
+                PluginCommands.Camera.Reset(this.plugin);
+            }
+
+        },
         superimposePair: async() => {
             const input = this.plugin.managers.structure.hierarchy.behaviors.selection.value.structures;
-            console.log("input");
-            console.log(input);
             // const traceOnly = this.state.options.traceOnly;
 
             const structures = input.map(s => s.cell.obj?.data!);
             // const { entries, failedPairs, zeroOverlapPairs } = alignAndSuperposeWithSIFTSMapping(structures, { traceOnly });
             const { entries, failedPairs, zeroOverlapPairs } = alignAndSuperposeWithSIFTSMapping(structures, {});
-            console.log('entries');
-            console.log(entries);
+            // const { entries, failedPairs, zeroOverlapPairs } = alignAndSuperpose(structures, {});
 
             const coordinateSystem = input[0]?.transform?.cell.obj?.data.coordinateSystem;
 
