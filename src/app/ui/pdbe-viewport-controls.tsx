@@ -6,6 +6,11 @@ import { SimpleSettingsControl } from 'Molstar/mol-plugin-ui/viewport/simple-set
 import { ViewportControls } from 'Molstar/mol-plugin-ui/viewport';
 import { AutorenewSvg, CameraOutlinedSvg, BuildOutlinedSvg, FullscreenSvg, TuneSvg, CloseSvg } from 'Molstar/mol-plugin-ui/controls/icons';
 
+// Marcelo EDIT
+// import { IconButton } from 'Molstar/mol-plugin-ui/controls/common';
+// import { jsx as _jsx} from "react/jsx-runtime";
+
+
 export class PDBeViewportControls extends ViewportControls {
     isBlack(customeState: any): boolean{
         if(customeState && customeState.initParams && customeState.initParams.bgColor){
@@ -14,6 +19,13 @@ export class PDBeViewportControls extends ViewportControls {
         }
         return false;
     }
+
+    // Marcelo EDIT
+    // icon(icon: React.FC, onClick: (e: React.MouseEvent<HTMLButtonElement>) => void, title: string, tstyle?: any, isOn?: boolean): JSX.Element {
+    //     if (isOn === void 0) { isOn = true; }
+    //     if (tstyle === void 0) { tstyle = { background: 'transparent' }}
+    //     return _jsx(IconButton, { svg: icon, toggleState: isOn, onClick: onClick, title: title, style: tstyle });
+    // }
 
     render() {
         const customeState: any = this.plugin.customState;
@@ -53,11 +65,13 @@ export class PDBeViewportControls extends ViewportControls {
                     <div>
                         <div className='msp-semi-transparent-background' />
                         {this.icon(CameraOutlinedSvg, this.toggleScreenshotExpanded, 'Screenshot / State Snapshot', this.state.isScreenshotExpanded)}
+                        {/* {this.icon(CameraOutlinedSvg, this.toggleScreenshotExpanded, 'Screenshot / State Snapshot', {'background': ''}, this.state.isScreenshotExpanded)} */}
                     </div>
                     <div>
                         <div className='msp-semi-transparent-background' />
                         {showControlToggle && this.icon(BuildOutlinedSvg, this.toggleControls, 'Toggle Controls Panel', this.plugin.layout.state.showControls)}
                         {this.plugin.config.get(PluginConfig.Viewport.ShowExpand) && this.icon(FullscreenSvg, this.toggleExpanded, 'Toggle Expanded Viewport', this.plugin.layout.state.isExpanded)}
+                        {/* {this.plugin.config.get(PluginConfig.Viewport.ShowExpand) && this.icon(FullscreenSvg, this.toggleExpanded, 'Toggle Expanded Viewport', {'background': ''}, this.plugin.layout.state.isExpanded)} */}
                         {showControlInfo && this.icon(TuneSvg, this.toggleSettingsExpanded, 'Settings / Controls Info', this.state.isSettingsExpanded)}
                     </div>
                     {this.plugin.config.get(PluginConfig.Viewport.ShowSelectionMode) && <div>

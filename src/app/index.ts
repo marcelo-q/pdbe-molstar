@@ -49,20 +49,18 @@ import { AnimateAssemblyUnwind } from 'Molstar/mol-plugin-state/animation/built-
  */
 
 import { alignAndSuperposeWithSIFTSMapping } from 'Molstar/mol-model/structure/structure/util/superposition-sifts-mapping';
-// import { stripTags } from 'Molstar/mol-util/string';
-// import { QueryContext, Structure, StructureElement, StructureSelection, StructureProperties } from 'Molstar/mol-model/structure';
-import { QueryContext, StructureSelection } from 'Molstar/mol-model/structure';
-import { StructureSelectionQueries } from 'Molstar/mol-plugin-state/helpers/structure-selection-query';
-// import { elementLabel, structureElementStatsLabel } from 'Molstar/mol-theme/label';
-// import { StructureSelectionHistoryEntry } from 'Molstar/mol-plugin-state/manager/structure/selection';
-// import { alignAndSuperpose, superpose } from 'Molstar/mol-model/structure/structure/util/superposition';
+// import { QueryContext, StructureSelection } from 'Molstar/mol-model/structure';
+// import { StructureSelectionQueries } from 'Molstar/mol-plugin-state/helpers/structure-selection-query';
 import { superpose } from 'Molstar/mol-model/structure/structure/util/superposition';
+// import { StructureSelectionQuery, StructureSelectionCategory } from 'Molstar/mol-plugin-state/helpers/structure-selection-query';
+// import { StructureSelectionQuery } from 'Molstar/mol-plugin-state/helpers/structure-selection-query';
 
-// import { StateObjectCell, StateObjectRef } from 'Molstar/mol-state';
 import { StateObjectRef } from 'Molstar/mol-state';
 import { Mat4 } from 'Molstar/mol-math/linear-algebra';
 import { SymmetryOperator } from 'Molstar/mol-math/geometry';
 import { StateTransforms } from 'Molstar/mol-plugin-state/transforms';
+import { MolScriptBuilder as MS } from 'Molstar/mol-script/language/builder';
+
 
 require('Molstar/mol-plugin-ui/skin/dark.scss');
 
@@ -415,7 +413,9 @@ class PDBeMolstarPlugin {
             'structure-component-static-branched': 'carbs',
             'structure-component-static-water': 'water',
             'structure-component-static-coarse': 'coarse',
-            'non-standard': 'nonStandard'
+            'non-standard': 'nonStandard',
+            'structure-component-static-lipid': 'lipid',
+            'structure-component-static-ion': 'ion',
         };
 
         const componentGroups = this.plugin.managers.structure.hierarchy.currentComponentGroups;
@@ -468,6 +468,25 @@ class PDBeMolstarPlugin {
         }
 
     }
+
+    /**
+     * LATEST IMP
+     * TO BE TESTED
+     */
+    // getStrSelectionQueryForParams(params: QueryParam[], structureNumber?: number) {
+    //     let assemblyRef = this.assemblyRef;
+
+    //     if(structureNumber) {
+    //         assemblyRef = this.plugin.managers.structure.hierarchy.current.structures[structureNumber - 1].cell.transform.ref;
+    //     }
+
+    //     if(assemblyRef === '') return EmptyLoci;
+    //     const data = (this.plugin.state.data.select(assemblyRef)[0].obj as PluginStateObject.Molecule.Structure).data;
+    //     if(!data) return EmptyLoci;
+
+    //     // return QueryHelper.getQueryObject(params, data) as any;
+    //     return QueryHelper.getSelQuery(params, data) as any;
+    // }
 
     getLociForParams(params: QueryParam[], structureNumber?: number) {
         let assemblyRef = this.assemblyRef;
@@ -650,7 +669,10 @@ class PDBeMolstarPlugin {
                 het: 'structure-component-static-ligand',
                 water: 'structure-component-static-water',
                 carbs: 'structure-component-static-branched',
-                maps: 'volume-streaming-info'
+                maps: 'volume-streaming-info',
+                nonStandard: 'non-standard',
+                lipid: 'structure-component-static-lipid',
+                ion: 'structure-component-static-ion',
             };
 
             for(let visual in data){
@@ -748,39 +770,35 @@ class PDBeMolstarPlugin {
                 await this.load({ url: dataSource.url, format: dataSource.format as BuiltInTrajectoryFormat, assemblyId: this.initParams.assemblyId, isBinary: dataSource.isBinary}, fullLoad);
             }
         },
-        transformSuperpose: async(s: StateObjectRef<PluginStateObject.Molecule.Structure>, matrix: Mat4, coordinateSystem?: SymmetryOperator) => {
-            const r = StateObjectRef.resolveAndCheck(this.plugin.state.data, s);
-            if (!r) return;
-            const o = this.plugin.state.data.selectQ(q => q.byRef(r.transform.ref).subtree().withTransformer(StateTransforms.Model.TransformStructureConformation))[0];
-    
-            const transform = coordinateSystem && !Mat4.isIdentity(coordinateSystem.matrix)
-                ? Mat4.mul(Mat4(), coordinateSystem.matrix, matrix)
-                : matrix;
-    
-            const params = {
-                transform: {
-                    name: 'matrix' as const,
-                    params: { data: transform, transpose: false }
-                }
-            };
-            const b = o
-                ? this.plugin.state.data.build().to(o).update(params)
-                : this.plugin.state.data.build().to(s)
-                    .insert(StateTransforms.Model.TransformStructureConformation, params, { tags: 'SuperpositionTransform' });
-            await this.plugin.runTask(this.plugin.state.data.updateTree(b));
-        },
-        superimposePairNoSifts: async() =>{
-            const xs: Array<any> = this.plugin.managers.structure.hierarchy.current.structures;
+        superimposePairNoSifts: async(params: QueryParam[], structureNumbers: Array<number>) =>{
+
+            let i_param = 0;
+            var xs: Array<any> = [];
+            var selections: Array<any> = [];
+            for await (const param of params) {
+                const current_str = this.plugin.managers.structure.hierarchy.current.structures[structureNumbers[i_param] - 1];
+                const loci = this.getLociForParams([param], structureNumbers[i_param]);
+                if(Loci.isEmpty(loci)) return;
+                xs.push(current_str)
+                selections.push(loci);
+                i_param += 1;
+            }
+
+            // const xs: Array<any> = this.plugin.managers.structure.hierarchy.current.structures;
             
             const coordinateSystem = xs[0]?.transform?.cell.obj?.data.coordinateSystem;
-            const { query } = StructureSelectionQueries.polymer;
-            const selections = xs.map((s:any) => StructureSelection.toLociWithCurrentUnits(query(new QueryContext(s.cell.obj!.data))));
+
+            // const { query } = StructureSelectionQueries.polymer;
+            // console.log("query to get selections");
+            // console.log(query);
+
+            // const selections = xs.map((s:any) => StructureSelection.toLociWithCurrentUnits(query(new QueryContext(s.cell.obj!.data))));
 
             const transforms: Array<any> = superpose(selections);
 
             let rmsd = 0;
             for (let i = 1; i < selections.length; i++) {
-                await this.visual.transformSuperpose(xs[i].cell, transforms[i - 1].bTransform, coordinateSystem);
+                await this.transformSuperpose(xs[i].cell, transforms[i - 1].bTransform, coordinateSystem);
                 rmsd += transforms[i - 1].rmsd;
             }
             rmsd /= Math.max(xs.length - 1, 1);
@@ -794,19 +812,16 @@ class PDBeMolstarPlugin {
         },
         superimposePair: async() => {
             const input = this.plugin.managers.structure.hierarchy.behaviors.selection.value.structures;
-            // const traceOnly = this.state.options.traceOnly;
 
             const structures = input.map(s => s.cell.obj?.data!);
-            // const { entries, failedPairs, zeroOverlapPairs } = alignAndSuperposeWithSIFTSMapping(structures, { traceOnly });
             const { entries, failedPairs, zeroOverlapPairs } = alignAndSuperposeWithSIFTSMapping(structures, {});
-            // const { entries, failedPairs, zeroOverlapPairs } = alignAndSuperpose(structures, {});
 
             const coordinateSystem = input[0]?.transform?.cell.obj?.data.coordinateSystem;
 
             let rmsd = 0;
 
             for (const xform of entries) {
-                await this.visual.transformSuperpose(input[xform.other].cell, xform.transform.bTransform, coordinateSystem);
+                await this.transformSuperpose(input[xform.other].cell, xform.transform.bTransform, coordinateSystem);
                 rmsd += xform.transform.rmsd;
             }
 
@@ -829,7 +844,50 @@ class PDBeMolstarPlugin {
                 await new Promise(res => requestAnimationFrame(res));
                 PluginCommands.Camera.Reset(this.plugin);
             }
-        }
+        },
+        createComponentForChain: async(params: { auth_asym_id: string, name: string, lbl: string, structureNumber?: number, color? : string}) => {
+            // let structureData = this.plugin.managers.structure.hierarchy.current.structures;
+            let assemblyRef = this.assemblyRef;
+            let structureNumber = params.structureNumber;
+            if (structureNumber) {
+                assemblyRef = this.plugin.managers.structure.hierarchy.current.structures[structureNumber - 1].cell.transform.ref;
+                // structureData = [this.plugin.managers.structure.hierarchy.current.structures[structureNumber - 1]];
+            }
+            const structure = this.state.select(assemblyRef)[0];
+            
+            const auth_asym_id = params.auth_asym_id;
+            const name = params.name;
+            const lbl_obj = {label: params.lbl};
+            const selectionVis = await this.plugin.builders.structure.tryCreateComponentFromExpression(structure, this.chainSelection(auth_asym_id), name, lbl_obj);
+            
+            let styleObj: Object = { type: 'cartoon'};
+            if (params.color) {
+                let uniformColor = this.normalizeColor(params.color);
+                styleObj = {
+                    type: 'cartoon',
+                    color: 'uniform',
+                    colorParams: { value: uniformColor },
+                };
+            }
+            // if (selectionVis) await this.plugin.builders.structure.representation.addRepresentation(selectionVis, styleObj)
+            if (selectionVis) {
+                let repr = await this.plugin.builders.structure.representation.addRepresentation(selectionVis, styleObj)
+                return repr;
+            } 
+            return null;
+        },
+        changeVisibilitySelection: async(tagName: string, visible: boolean) => {
+            const componentRef = StateSelection.findTagInSubtree(this.plugin.state.data.tree, StateTransform.RootRef, tagName);
+            if(componentRef){
+                const compVisual = this.plugin.state.data.select(componentRef)[0];
+                if(compVisual && compVisual.obj){
+                    const currentlyVisible = (compVisual.state && compVisual.state.isHidden) ? false : true;
+                    if(visible !== currentlyVisible){
+                        PluginCommands.State.ToggleVisibility(this.plugin, { state: this.state, ref: componentRef });
+                    }
+                }
+            }
+        },
     }
 
     async clear() {
@@ -838,6 +896,34 @@ class PDBeMolstarPlugin {
         this.selectedParams = void 0;
         this.isHighlightColorUpdated = false;
         this.isSelectedColorUpdated = false;
+    }
+
+    async transformSuperpose (s: StateObjectRef<PluginStateObject.Molecule.Structure>, matrix: Mat4, coordinateSystem?: SymmetryOperator) {
+        const r = StateObjectRef.resolveAndCheck(this.plugin.state.data, s);
+        if (!r) return;
+        const o = this.plugin.state.data.selectQ(q => q.byRef(r.transform.ref).subtree().withTransformer(StateTransforms.Model.TransformStructureConformation))[0];
+
+        const transform = coordinateSystem && !Mat4.isIdentity(coordinateSystem.matrix)
+            ? Mat4.mul(Mat4(), coordinateSystem.matrix, matrix)
+            : matrix;
+
+        const params = {
+            transform: {
+                name: 'matrix' as const,
+                params: { data: transform, transpose: false }
+            }
+        };
+        const b = o
+            ? this.plugin.state.data.build().to(o).update(params)
+            : this.plugin.state.data.build().to(s)
+                .insert(StateTransforms.Model.TransformStructureConformation, params, { tags: 'SuperpositionTransform' });
+        await this.plugin.runTask(this.plugin.state.data.updateTree(b));
+    }
+
+    chainSelection(auth_asym_id: string) {
+        return MS.struct.generator.atomGroups({
+            'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), auth_asym_id])
+        });
     }
 }
 

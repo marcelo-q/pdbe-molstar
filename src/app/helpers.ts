@@ -263,6 +263,14 @@ export namespace QueryHelper {
         return Queries.combinators.merge(atmGroupsQueries);
     }
 
+    /**
+     * ADDED BY MARCELO
+     */
+    // export function getSelQuery(params: any, contextData: any){
+    //     const sel = StructureQuery.run(QueryHelper.getQueryObject(params, contextData) as any, contextData);
+    //     return sel;
+    // }
+
     export function getInteractivityLoci(params: any, contextData: any){
         const sel = StructureQuery.run(QueryHelper.getQueryObject(params, contextData) as any, contextData);
         return StructureSelection.toLociWithSourceUnits(sel);

@@ -22,15 +22,22 @@ export function subscribeToComponentEvents(wrapperCtx: any) {
         if(typeof e.eventData !== 'undefined'){
             // Create query object from event data
             let highlightQuery = {
-                entity_id: e.eventData.entityId,
-                struct_asym_id: e.eventData.structAsymId,
+                entity_id: e.eventData.entityId+"",
+                // struct_asym_id: e.eventData.structAsymId,
+                struct_asym_id: e.eventData.chainId,
                 start_residue_number: e.eventData.residueNumber,
                 end_residue_number: e.eventData.residueNumber,
                 sideChain: true,
                 focus: true
             };
+
+            let highlightObject = {data: [highlightQuery]} as any;
+
+            if (wrapperCtx.selection_strnum) highlightObject['structureNumber'] = wrapperCtx.selection_strnum;
+
             // Call highlightAnnotation
-            wrapperCtx.visual.select({data: [highlightQuery]});
+            // wrapperCtx.visual.select({data: [highlightQuery]});
+            wrapperCtx.visual.select(highlightObject);
         }
     });
 
@@ -41,13 +48,20 @@ export function subscribeToComponentEvents(wrapperCtx: any) {
 
             // Create query object from event data
             let highlightQuery = {
-                entity_id: e.eventData.entityId,
-                struct_asym_id: e.eventData.structAsymId,
+                entity_id: e.eventData.entityId+"",
+                // struct_asym_id: e.eventData.structAsymId,
+                struct_asym_id: e.eventData.chainId,
                 start_residue_number: e.eventData.residueNumber,
                 end_residue_number: e.eventData.residueNumber
             };
+
+            let highlightObject = {data: [highlightQuery]} as any;
+
+            if (wrapperCtx.selection_strnum) highlightObject['structureNumber'] = wrapperCtx.selection_strnum;
+
             // Call highlightAnnotation
-            wrapperCtx.visual.highlight({data: [highlightQuery]});
+            // wrapperCtx.visual.highlight({data: [highlightQuery]});
+            wrapperCtx.visual.highlight(highlightObject);
         }
     });
 
@@ -71,7 +85,19 @@ export function subscribeToComponentEvents(wrapperCtx: any) {
             if(e.detail.feature && e.detail.feature.entityId) highlightQuery['entity_id'] = e.detail.feature.entityId + '';
             if(e.detail.feature && e.detail.feature.bestChainId) highlightQuery['struct_asym_id'] = e.detail.feature.bestChainId;
 
-            if(highlightQuery) wrapperCtx.visual.highlight({data: [highlightQuery]});
+            /**
+             * Added so specific selections prefs can be saved in wrapperCtx
+             */
+            if (highlightQuery && wrapperCtx.selection_chain_id && !highlightQuery.entity_id) highlightQuery['entity_id'] = wrapperCtx.selection_entity_id+ '';
+            if (highlightQuery && wrapperCtx.selection_entity_id && !highlightQuery.struct_asym_id) highlightQuery['struct_asym_id'] = wrapperCtx.selection_chain_id;
+
+            if(highlightQuery) {
+                let highlightObject = {data: [highlightQuery]} as any;
+
+                if (wrapperCtx.selection_strnum) highlightObject['structureNumber'] = wrapperCtx.selection_strnum;
+
+                wrapperCtx.visual.highlight(highlightObject);
+            }
         }
     });
 
@@ -95,6 +121,12 @@ export function subscribeToComponentEvents(wrapperCtx: any) {
 
             if(e.detail.feature && e.detail.feature.entityId) highlightQuery['entity_id'] = e.detail.feature.entityId + '';
             if(e.detail.feature && e.detail.feature.bestChainId) highlightQuery['struct_asym_id'] = e.detail.feature.bestChainId;
+
+            /**
+             * Added so specific selections prefs can be saved in wrapperCtx
+             */
+            if (highlightQuery && wrapperCtx.selection_chain_id && !highlightQuery.entity_id) highlightQuery['entity_id'] = wrapperCtx.selection_entity_id+ '';
+            if (highlightQuery && wrapperCtx.selection_entity_id && !highlightQuery.struct_asym_id) highlightQuery['struct_asym_id'] = wrapperCtx.selection_chain_id;
 
             if(e.detail.feature && e.detail.feature.accession && e.detail.feature.accession.split(' ')[0] === 'Chain' || e.detail.feature.tooltipContent === 'Ligand binding site') {
                 showInteraction = true;
@@ -125,7 +157,12 @@ export function subscribeToComponentEvents(wrapperCtx: any) {
                     highlightQuery['color'] = selColor;
                 }
                 highlightQuery['focus'] = true;
-                wrapperCtx.visual.select({data: [highlightQuery]});
+
+                let highlightObject = {data: [highlightQuery]} as any;
+
+                if (wrapperCtx.selection_strnum) highlightObject['structureNumber'] = wrapperCtx.selection_strnum;
+
+                wrapperCtx.visual.select(highlightObject);
             }
         }
     });
